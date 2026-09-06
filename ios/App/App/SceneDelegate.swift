@@ -4,37 +4,34 @@ import Capacitor
 class MyBridgeViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
-        
-        // Manual registration of the local QobuzAudioPlugin
-        if let pluginClass = NSClassFromString("QobuzAudioPlugin") as? NSObject.Type {
-            if let pluginInstance = pluginClass.init() as? CAPPlugin {
-                self.bridge?.registerPluginInstance(pluginInstance)
-                print("⚡️ [Capacitor] Successfully registered QobuzAudioPlugin manually.")
-            } else {
-                print("⚡️ [Capacitor] Found QobuzAudioPlugin class but couldn't cast to CAPPlugin.")
-            }
+
+        // ── QobuzAudioPlugin ──────────────────────────────────────────────
+        // NSClassFromString works for QobuzAudioPlugin because it's ObjC-registered.
+        if let cls = NSClassFromString("QobuzAudioPlugin") as? NSObject.Type,
+           let plugin = cls.init() as? CAPPlugin {
+            self.bridge?.registerPluginInstance(plugin)
+            print("⚡️ [Capacitor] QobuzAudioPlugin registered.")
         } else {
-            print("⚡️ [Capacitor] QobuzAudioPlugin class not found via NSClassFromString.")
+            print("⚡️ [Capacitor] QobuzAudioPlugin not found.")
         }
 
-        // Manual registration of LiquidTabBarPlugin (iOS 26 Liquid Glass tab bar)
-        if let pluginClass = NSClassFromString("LiquidTabBarPlugin") as? NSObject.Type {
-            if let pluginInstance = pluginClass.init() as? CAPPlugin {
-                self.bridge?.registerPluginInstance(pluginInstance)
-                print("⚡️ [Capacitor] Successfully registered LiquidTabBarPlugin manually.")
-            } else {
-                print("⚡️ [Capacitor] Found LiquidTabBarPlugin class but couldn't cast to CAPPlugin.")
-            }
-        } else {
-            print("⚡️ [Capacitor] LiquidTabBarPlugin class not found via NSClassFromString.")
-        }
+        // ── LiquidTabBarPlugin ────────────────────────────────────────────
+        // Direct Swift instantiation — avoids NSClassFromString failures
+        // with Swift class name mangling (e.g. "App.LiquidTabBarPlugin").
+        // The CAPBridgedPlugin protocol provides identifier/jsName/pluginMethods
+        // so Capacitor knows how to route JS calls to this plugin instance.
+        let liquidTabBarPlugin = LiquidTabBarPlugin()
+        self.bridge?.registerPluginInstance(liquidTabBarPlugin)
+        print("⚡️ [Capacitor] LiquidTabBarPlugin registered (direct instantiation).")
     }
 }
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
 
-    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+    func scene(_ scene: UIScene,
+               willConnectTo session: UISceneSession,
+               options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
         window = UIWindow(windowScene: windowScene)
         window?.rootViewController = MyBridgeViewController()

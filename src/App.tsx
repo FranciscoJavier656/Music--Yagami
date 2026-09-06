@@ -9,13 +9,17 @@ import DownloadsTab from './components/DownloadsTab';
 import AlbumView from './components/AlbumView';
 import PlaylistView from './components/PlaylistView';
 import ArtistView from './components/ArtistView';
-
 import { PlayerProvider } from './components/PlayerContext';
 import { DownloadProvider } from './lib/DownloadContext';
 import { WifiOff } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import MiniPlayer from './components/MiniPlayer';
 import { LiquidTabBar } from './components/LiquidTabBar';
+import { Capacitor, registerPlugin } from '@capacitor/core';
+
+// Native iOS plugin — registered in SceneDelegate.swift (direct instantiation)
+const isNative = Capacitor.isNativePlatform();
+const LiquidTabBarNative = isNative ? registerPlugin<any>('LiquidTabBar') : null;
 
 class RootErrorBoundary extends React.Component<any, any> {
   constructor(props: any) {
@@ -34,7 +38,6 @@ class RootErrorBoundary extends React.Component<any, any> {
         <div style={{ padding: 20, color: 'red', background: 'white', height: '100vh', wordWrap: 'break-word' }}>
           <h1>Fatal Error</h1>
           <pre>{this.state.error?.toString()}</pre>
-          <pre>{this.state.error?.stack}</pre>
         </div>
       );
     }
@@ -52,30 +55,25 @@ function AppContent() {
   const [isOffline, setIsOffline]       = useState(
     typeof navigator !== 'undefined' ? !navigator.onLine : false
   );
-
   const [activeTab, setActiveTab] = useState<
     'home' | 'search' | 'library' | 'downloads' | 'settings'
   >('home');
-
   const [globalOverlay, setGlobalOverlay] = useState<{
-    type: 'album' | 'artist' | 'playlist';
-    id: string;
+    type: 'album' | 'artist' | 'playlist'; id: string;
   } | null>(null);
-
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
-        return (
-          localStorage.getItem('theme') === 'dark' ||
-          (!('theme' in localStorage) &&
-            window.matchMedia('(prefers-color-scheme: dark)').matches)
-        );
-      } catch {
-        return false;
-      }
+        return localStorage.getItem('theme') === 'dark' ||
+          (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      } catch { return false; }
     }
     return false;
   });
+
+  // Whether native iOS SwiftUI tab bar is active
+  // (hides React fallback when native works)
+  const [useNativeTabBar, setUseNativeTabBar] = useState(false);
 
   // Online / offline
   useEffect(() => {
@@ -96,7 +94,7 @@ function AppContent() {
     return () => document.removeEventListener('open-overlay', handler);
   }, []);
 
-  // Navigate events
+  // Navigate events (from child components)
   useEffect(() => {
     const handler = (e: any) => { if (e.detail) setActiveTab(e.detail); };
     window.addEventListener('navigate',   handler);
@@ -107,7 +105,7 @@ function AppContent() {
     };
   }, []);
 
-  // App loading timer
+  // App loading splash
   useEffect(() => {
     const t = setTimeout(() => {
       setIsAppLoading(false);
@@ -116,18 +114,52 @@ function AppContent() {
     return () => clearTimeout(t);
   }, []);
 
-  // Dark mode persistence
+  // Dark mode
   useEffect(() => {
     try {
-      if (isDarkMode) {
-        document.documentElement.classList.add('dark');
-        localStorage.setItem('theme', 'dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-        localStorage.setItem('theme', 'light');
-      }
+      document.documentElement.classList.toggle('dark', isDarkMode);
+      localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
     } catch { /* noop */ }
   }, [isDarkMode]);
+
+  // ── Native iOS 26 Liquid Glass TabBar init ──────────────────────────────
+  // After UI loads, try to initialize the native SwiftUI tab bar via the
+  // LiquidTabBarPlugin registered in SceneDelegate.swift.
+  // If successful → useNativeTabBar = true → React tab bar is hidden.
+  // If it fails (simulator / older iOS) → React fallback stays visible.
+  useEffect(() => {
+    if (!showUI || !isNative || !LiquidTabBarNative) return;
+    let tabListener: any = null;
+
+    const init = async () => {
+      try {
+        await LiquidTabBarNative.initializeTabBar({ activeTab: 'home' });
+        setUseNativeTabBar(true);
+        console.log('⚡️ Native iOS 26 Liquid Glass TabBar active');
+
+        // Listen for tab changes from native (user tapped native bar)
+        tabListener = await LiquidTabBarNative.addListener(
+          'onTabSelected',
+          (info: any) => { if (info?.tabId) setActiveTab(info.tabId); }
+        );
+      } catch (e) {
+        console.warn('Native LiquidTabBar unavailable — using React fallback:', e);
+        setUseNativeTabBar(false);
+      }
+    };
+    init();
+
+    return () => {
+      tabListener?.remove?.().catch(() => {});
+    };
+  }, [showUI]);
+
+  // Sync activeTab → native bar (when changed from web side, e.g. deep links)
+  useEffect(() => {
+    if (!useNativeTabBar || !LiquidTabBarNative) return;
+    LiquidTabBarNative.updateTab({ tabId: activeTab }).catch(() => {});
+  }, [activeTab, useNativeTabBar]);
+  // ───────────────────────────────────────────────────────────────────────
 
   return (
     <DownloadProvider>
@@ -137,8 +169,7 @@ function AppContent() {
           {/* Loading screen */}
           <AnimatePresence>
             {isAppLoading && (
-              <motion.div
-                key="loader"
+              <motion.div key="loader"
                 exit={{ opacity: 0, scale: 1.05, filter: 'blur(10px)' }}
                 transition={{ duration: 0.8, ease: 'easeInOut' }}
                 className="flex flex-col h-screen w-screen bg-[#F2F2F7] dark:bg-[#000000] items-center justify-center absolute inset-0 z-[200]"
@@ -152,13 +183,10 @@ function AppContent() {
           <AnimatePresence>
             {isOffline && (
               <motion.div
-                initial={{ opacity: 0, y: -50 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -50 }}
+                initial={{ opacity: 0, y: -50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -50 }}
                 className="absolute top-12 left-1/2 -translate-x-1/2 z-[90] bg-red-500/90 backdrop-blur-md text-white px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-2 shadow-lg"
               >
-                <WifiOff size={14} />
-                Sin Conexión
+                <WifiOff size={14} /> Sin Conexión
               </motion.div>
             )}
           </AnimatePresence>
@@ -179,17 +207,29 @@ function AppContent() {
           {/* Global overlays */}
           <AnimatePresence>
             {globalOverlay?.type === 'album' && (
-              <motion.div key="album" initial={{ opacity: 0, x: '100%' }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed inset-0 z-[80] bg-[#F2F2F7] dark:bg-[#000000]">
+              <motion.div key="album"
+                initial={{ opacity: 0, x: '100%' }} animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                className="fixed inset-0 z-[80] bg-[#F2F2F7] dark:bg-[#000000]"
+              >
                 <AlbumView albumId={globalOverlay.id} onBack={() => setGlobalOverlay(null)} />
               </motion.div>
             )}
             {globalOverlay?.type === 'playlist' && (
-              <motion.div key="playlist" initial={{ opacity: 0, x: '100%' }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed inset-0 z-[80] bg-[#F2F2F7] dark:bg-[#000000]">
+              <motion.div key="playlist"
+                initial={{ opacity: 0, x: '100%' }} animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                className="fixed inset-0 z-[80] bg-[#F2F2F7] dark:bg-[#000000]"
+              >
                 <PlaylistView playlistId={globalOverlay.id} onBack={() => setGlobalOverlay(null)} />
               </motion.div>
             )}
             {globalOverlay?.type === 'artist' && (
-              <motion.div key="artist" initial={{ opacity: 0, x: '100%' }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed inset-0 z-[80] bg-[#F2F2F7] dark:bg-[#000000]">
+              <motion.div key="artist"
+                initial={{ opacity: 0, x: '100%' }} animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                className="fixed inset-0 z-[80] bg-[#F2F2F7] dark:bg-[#000000]"
+              >
                 <ArtistView artistId={globalOverlay.id} onBack={() => setGlobalOverlay(null)} />
               </motion.div>
             )}
@@ -198,8 +238,10 @@ function AppContent() {
           {/* Mini Player */}
           <MiniPlayer />
 
-          {/* Tab Bar — always shows when UI is ready, no native plugin dependency */}
-          {showUI && (
+          {/* Tab Bar
+              - On iOS device: native SwiftUI Liquid Glass (useNativeTabBar=true → hidden here)
+              - On web/simulator: React fallback */}
+          {showUI && !useNativeTabBar && (
             <LiquidTabBar activeTab={activeTab} setActiveTab={setActiveTab} />
           )}
 
