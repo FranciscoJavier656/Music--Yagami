@@ -9,20 +9,21 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { id: 'home', icon: Home, label: 'Inicio' },
-  { id: 'search', icon: Search, label: 'Buscar' },
-  { id: 'library', icon: Library, label: 'Librería' },
-  { id: 'downloads', icon: Download, label: 'Descargas' },
-  { id: 'settings', icon: SettingsIcon, label: 'Ajustes' },
+  { id: 'home',      icon: Home,           label: 'Inicio'    },
+  { id: 'search',    icon: Search,         label: 'Buscar'    },
+  { id: 'library',   icon: Library,        label: 'Librería'  },
+  { id: 'downloads', icon: Download,       label: 'Descargas' },
+  { id: 'settings',  icon: SettingsIcon,   label: 'Ajustes'   },
 ];
 
-// Springs viscosos como agua
 const LIQUID_SPRING  = { stiffness: 120, damping: 14, mass: 1.2 };
 const STRETCH_SPRING = { stiffness: 200, damping: 18, mass: 0.9 };
 const ICON_SPRING    = { stiffness: 280, damping: 22, mass: 0.8 };
 
-// Altura total de la barra + safe-area para que otros elementos la esquiven
-export const TAB_BAR_HEIGHT = 88; // 72px barra + 16px gap
+const BAR_BOTTOM   = 'max(env(safe-area-inset-bottom, 8px), 8px)';
+const BAR_WIDTH    = '92%';
+const BAR_MAX      = 420;
+const BAR_H        = 72;
 
 export const LiquidTabBar = ({
   activeTab,
@@ -31,11 +32,12 @@ export const LiquidTabBar = ({
   activeTab: string;
   setActiveTab: (id: string) => void;
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
+  // Ref para medir posiciones de los tabs
+  const iconsRef  = useRef<HTMLDivElement>(null);
   const [tabCenters, setTabCenters] = useState<number[]>([]);
   const prevTabRef = useRef(activeTab);
 
-  // Motion values para la burbuja líquida
+  // Motion values
   const bubbleX      = useMotionValue(0);
   const bubbleWidth  = useMotionValue(56);
   const bubbleHeight = useMotionValue(56);
@@ -45,20 +47,18 @@ export const LiquidTabBar = ({
   const smoothWidth  = useSpring(bubbleWidth,  STRETCH_SPRING);
   const smoothHeight = useSpring(bubbleHeight, STRETCH_SPRING);
   const smoothY      = useSpring(bubbleY,      LIQUID_SPRING);
+  const scaleY       = useTransform(smoothWidth, [56, 140], [1, 0.72]);
 
-  // scaleY inverso para conservar "volumen" como agua
-  const scaleY = useTransform(smoothWidth, [56, 140], [1, 0.72]);
-
-  // Medir centros de cada tab
+  // Medir centros de tabs
   const measure = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const btns = container.querySelectorAll<HTMLElement>('.ltb-tab');
-    const containerRect = container.getBoundingClientRect();
+    const el = iconsRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const btns = el.querySelectorAll<HTMLElement>('.ltb-tab');
     const centers: number[] = [];
-    btns.forEach((btn) => {
+    btns.forEach(btn => {
       const r = btn.getBoundingClientRect();
-      centers.push(r.left - containerRect.left + r.width / 2);
+      centers.push(r.left - rect.left + r.width / 2);
     });
     setTabCenters(centers);
   }, []);
@@ -66,25 +66,23 @@ export const LiquidTabBar = ({
   useLayoutEffect(() => {
     measure();
     const ro = new ResizeObserver(measure);
-    if (containerRef.current) ro.observe(containerRef.current);
+    if (iconsRef.current) ro.observe(iconsRef.current);
     return () => ro.disconnect();
   }, [measure]);
 
-  // Posición inicial (sin animación)
+  // Posición inicial sin animación
   useEffect(() => {
-    if (tabCenters.length === 0) return;
-    const idx = TABS.findIndex((t) => t.id === activeTab);
-    if (idx >= 0 && tabCenters[idx] != null) {
-      bubbleX.set(tabCenters[idx]);
-    }
+    if (!tabCenters.length) return;
+    const idx = TABS.findIndex(t => t.id === activeTab);
+    if (idx >= 0 && tabCenters[idx] != null) bubbleX.set(tabCenters[idx]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabCenters.length]);
 
-  // Animación líquida al cambiar de tab
+  // Animación líquida al cambiar tab
   useEffect(() => {
-    const activeIdx = TABS.findIndex((t) => t.id === activeTab);
-    const prevIdx   = TABS.findIndex((t) => t.id === prevTabRef.current);
-    if (tabCenters.length === 0 || activeIdx < 0) return;
+    const activeIdx = TABS.findIndex(t => t.id === activeTab);
+    const prevIdx   = TABS.findIndex(t => t.id === prevTabRef.current);
+    if (!tabCenters.length || activeIdx < 0) return;
 
     const targetX    = tabCenters[activeIdx];
     const prevX      = tabCenters[prevIdx] ?? targetX;
@@ -92,23 +90,23 @@ export const LiquidTabBar = ({
     const tabSpacing = tabCenters.length > 1
       ? Math.abs(tabCenters[1] - tabCenters[0]) : 70;
 
-    const stretchFactor = Math.min(distance / tabSpacing, 3);
-    const peakWidth     = 56 + stretchFactor * 38;
+    const stretch    = Math.min(distance / tabSpacing, 3);
+    const peakW      = 56 + stretch * 38;
 
     if (distance > 5) {
-      bubbleWidth.set(peakWidth);
-      bubbleHeight.set(56 * (56 / peakWidth));
-      bubbleY.set(-10 + stretchFactor * 2);
+      bubbleWidth.set(peakW);
+      bubbleHeight.set(56 * (56 / peakW));
+      bubbleY.set(-10 + stretch * 2);
       bubbleX.set(targetX);
 
-      const timer = setTimeout(() => {
+      const t = setTimeout(() => {
         bubbleWidth.set(56);
         bubbleHeight.set(56);
         bubbleY.set(-10);
-      }, 120 + stretchFactor * 30);
+      }, 120 + stretch * 30);
 
       prevTabRef.current = activeTab;
-      return () => clearTimeout(timer);
+      return () => clearTimeout(t);
     } else {
       bubbleX.set(targetX);
       prevTabRef.current = activeTab;
@@ -116,18 +114,17 @@ export const LiquidTabBar = ({
   }, [activeTab, tabCenters, bubbleX, bubbleWidth, bubbleHeight, bubbleY]);
 
   return (
-    <div
-      className="fixed left-0 w-full flex justify-center z-[100] pointer-events-none"
-      style={{ bottom: 'max(env(safe-area-inset-bottom, 8px), 8px)' }}
-    >
-      {/* SVG goo filter — SOLO para las formas sólidas, nunca para los íconos */}
-      <svg style={{ position: 'absolute', width: 0, height: 0 }} aria-hidden="true">
+    <>
+      {/* ── SVG goo filter definition (oculto) ── */}
+      <svg
+        aria-hidden="true"
+        style={{ position: 'fixed', width: 0, height: 0, top: 0, left: 0 }}
+      >
         <defs>
           <filter id="liquid-goo" x="-20%" y="-60%" width="140%" height="220%">
             <feGaussianBlur in="SourceGraphic" stdDeviation="7" result="blur" />
             <feColorMatrix
-              in="blur"
-              mode="matrix"
+              in="blur" mode="matrix"
               values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -10"
               result="goo"
             />
@@ -136,158 +133,185 @@ export const LiquidTabBar = ({
         </defs>
       </svg>
 
-      <nav
-        className="relative w-[92%] max-w-[420px] pointer-events-auto"
-        style={{ height: 72 }}
+      {/* ══════════════════════════════════════════════════
+          CAPA A — BARRA VISUAL (z-[100])
+          Contiene: goo shapes + glass backdrop-blur + highlights
+          ⚠️  NUNCA hay íconos aquí dentro — el backdrop-filter
+          y el SVG filter crean stacking contexts que atrapan
+          a cualquier elemento hijo/hermano debajo de ellos.
+          ══════════════════════════════════════════════════ */}
+      <div
+        className="fixed left-0 w-full flex justify-center pointer-events-none z-[100]"
+        style={{ bottom: BAR_BOTTOM }}
       >
-        {/* ═══════════════════════════════════════════
-            CAPA 1 — GOO SHAPES (barra + burbuja sólidas)
-            ⚠️  NINGÚN backdrop-filter aquí — el SVG goo
-            filter necesita fondos OPACOS para funcionar.
-            Los íconos van en una capa completamente separada.
-            ═══════════════════════════════════════════ */}
         <div
-          className="absolute pointer-events-none overflow-visible"
           style={{
-            inset: 0,
-            top: -28,
-            height: 72 + 28 + 10,
-            filter: 'url(#liquid-goo)',
-            // isolation: 'isolate' necesario para que el filter no afecte capas externas
-            isolation: 'isolate',
+            position: 'relative',
+            width: BAR_WIDTH,
+            maxWidth: BAR_MAX,
+            height: BAR_H,
           }}
         >
-          {/* Barra principal — fondo sólido oscuro */}
+          {/* Goo shapes: solo fondos SÓLIDOS — el SVG filter necesita opacidad total */}
           <div
-            className="absolute rounded-[36px]"
             style={{
-              top: 28,
-              left: 0,
-              right: 0,
-              height: 72,
-              background: 'rgb(22, 22, 24)',   // sólido, sin alpha bajo
+              position: 'absolute',
+              left: 0, right: 0,
+              top: -28,
+              height: BAR_H + 38,
+              filter: 'url(#liquid-goo)',
+              isolation: 'isolate',
+              pointerEvents: 'none',
+              overflow: 'visible',
             }}
-          />
-
-          {/* Burbuja activa — se fusiona con la barra via goo */}
-          <motion.div
-            className="absolute rounded-full"
-            style={{
+          >
+            {/* Barra sólida */}
+            <div style={{
+              position: 'absolute',
+              top: 28, left: 0, right: 0,
+              height: BAR_H,
+              borderRadius: 36,
+              background: 'rgb(20, 20, 22)',
+            }} />
+            {/* Burbuja líquida */}
+            <motion.div style={{
+              position: 'absolute',
+              borderRadius: '50%',
               width:   smoothWidth,
               height:  smoothHeight,
-              x:       useTransform(smoothX,  (v) => v - 28),
-              y:       useTransform(smoothY,  (v) => v + 28),
+              x:       useTransform(smoothX, v => v - 28),
+              y:       useTransform(smoothY, v => v + 28),
               scaleY,
-              background: 'rgb(38, 38, 42)',   // ligeramente más claro que la barra
-            }}
-          />
-        </div>
+              background: 'rgb(36, 36, 40)',
+            }} />
+          </div>
 
-        {/* ═══════════════════════════════════════════
-            CAPA 2 — GLASS MATERIAL (backdrop-blur)
-            Separada del goo filter para no interferir.
-            ═══════════════════════════════════════════ */}
-        <div
-          className="absolute inset-0 rounded-[36px] pointer-events-none"
-          style={{
-            backdropFilter: 'blur(48px) saturate(180%) brightness(1.05)',
-            WebkitBackdropFilter: 'blur(48px) saturate(180%) brightness(1.05)',
-            background: 'rgba(22,22,24,0.45)',
-            boxShadow: `
-              0 8px 40px rgba(0,0,0,0.5),
-              inset 0 1px 0 rgba(255,255,255,0.09),
-              inset 0 -0.5px 0 rgba(255,255,255,0.04)
-            `,
-            border: '0.5px solid rgba(255,255,255,0.13)',
-          }}
-        />
+          {/* Glass backdrop-blur (capa separada, NO dentro del goo) */}
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: 36,
+            backdropFilter: 'blur(50px) saturate(180%) brightness(1.06)',
+            WebkitBackdropFilter: 'blur(50px) saturate(180%) brightness(1.06)',
+            background: 'rgba(20,20,22,0.42)',
+            boxShadow: [
+              '0 8px 40px rgba(0,0,0,0.5)',
+              'inset 0 1px 0 rgba(255,255,255,0.09)',
+              'inset 0 -0.5px 0 rgba(255,255,255,0.04)',
+            ].join(','),
+            border: '0.5px solid rgba(255,255,255,0.12)',
+            pointerEvents: 'none',
+          }} />
 
-        {/* Highlight superior de la barra */}
-        <div
-          className="absolute inset-0 rounded-[36px] pointer-events-none"
-          style={{
-            background: 'linear-gradient(to bottom, rgba(255,255,255,0.06) 0%, transparent 40%)',
-          }}
-        />
+          {/* Gradiente superior (shine) */}
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: 36,
+            background: 'linear-gradient(to bottom, rgba(255,255,255,0.055) 0%, transparent 45%)',
+            pointerEvents: 'none',
+          }} />
 
-        {/* Highlight de burbuja activa (efecto glass encima) */}
-        <motion.div
-          className="absolute rounded-full pointer-events-none"
-          style={{
+          {/* Highlight + chromatic fringe de la burbuja */}
+          <motion.div style={{
+            position: 'absolute',
+            borderRadius: '50%',
             width:  smoothWidth,
             height: smoothHeight,
-            left:   useTransform(smoothX, (v) => v - 28),
+            left:   useTransform(smoothX, v => v - 28),
             top:    smoothY,
             scaleY,
-            background: 'linear-gradient(160deg, rgba(255,255,255,0.12) 0%, transparent 55%)',
-            boxShadow: `
-              inset 0 1px 1px rgba(255,255,255,0.18),
-              0 4px 16px rgba(0,0,0,0.28)
-            `,
-            border: '0.5px solid rgba(255,255,255,0.18)',
-          }}
-        >
-          {/* Chromatic fringe — bordes RGB sutiles */}
-          <div
-            className="absolute inset-[-1px] rounded-full overflow-hidden pointer-events-none"
-            style={{
+            background: 'linear-gradient(155deg, rgba(255,255,255,0.13) 0%, transparent 55%)',
+            boxShadow: [
+              'inset 0 1px 1px rgba(255,255,255,0.18)',
+              '0 4px 16px rgba(0,0,0,0.28)',
+            ].join(','),
+            border: '0.5px solid rgba(255,255,255,0.17)',
+            pointerEvents: 'none',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              position: 'absolute',
+              inset: -1,
+              borderRadius: '50%',
               background: `linear-gradient(135deg,
-                rgba(0,200,255,0.28) 0%,
-                transparent 30%,
-                rgba(255,0,200,0.22) 50%,
-                transparent 70%,
-                rgba(0,180,255,0.28) 100%
-              )`,
+                rgba(0,200,255,0.28) 0%, transparent 30%,
+                rgba(255,0,200,0.22) 50%, transparent 70%,
+                rgba(0,180,255,0.28) 100%)`,
               maskImage: 'radial-gradient(circle, transparent 52%, black 100%)',
               WebkitMaskImage: 'radial-gradient(circle, transparent 52%, black 100%)',
-            }}
-          />
-        </motion.div>
+            }} />
+          </motion.div>
+        </div>
+      </div>
 
-        {/* ═══════════════════════════════════════════
-            CAPA 3 — ÍCONOS & LABELS
-            z-[50] — completamente encima de todo.
-            ⚠️  NUNCA dentro del goo filter container.
-            ═══════════════════════════════════════════ */}
+      {/* ══════════════════════════════════════════════════
+          CAPA B — ÍCONOS & LABELS (z-[110])
+          Elemento fixed COMPLETAMENTE SEPARADO de la Capa A.
+          No tiene ningún padre con filter/backdrop-filter,
+          por lo que SIEMPRE se pinta encima de la barra.
+          ══════════════════════════════════════════════════ */}
+      <div
+        className="fixed left-0 w-full flex justify-center pointer-events-none z-[110]"
+        style={{ bottom: BAR_BOTTOM }}
+      >
         <div
-          ref={containerRef}
-          className="absolute inset-0 flex items-center justify-around px-1 z-[50]"
+          ref={iconsRef}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-around',
+            width: BAR_WIDTH,
+            maxWidth: BAR_MAX,
+            height: BAR_H,
+            padding: '0 4px',
+            pointerEvents: 'auto',
+          }}
         >
-          {TABS.map((tab) => {
+          {TABS.map(tab => {
             const isActive = activeTab === tab.id;
             const Icon = tab.icon;
-
             return (
               <button
                 key={tab.id}
-                className="ltb-tab flex flex-col items-center justify-center gap-[3px] flex-1 h-full bg-transparent border-none outline-none cursor-pointer"
-                style={{ WebkitTapHighlightColor: 'transparent' }}
+                className="ltb-tab"
+                style={{
+                  flex: 1,
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  WebkitTapHighlightColor: 'transparent',
+                  gap: 3,
+                }}
                 onClick={() => setActiveTab(tab.id)}
               >
                 <motion.div
-                  animate={{
-                    y:     isActive ? -14 : 0,
-                    scale: isActive ? 1.15 : 1,
-                  }}
+                  animate={{ y: isActive ? -14 : 0, scale: isActive ? 1.15 : 1 }}
                   transition={{ type: 'spring', ...ICON_SPRING }}
-                  className="flex flex-col items-center gap-[3px]"
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}
                 >
                   <Icon
                     size={isActive ? 24 : 22}
                     strokeWidth={isActive ? 2.4 : 1.8}
                     style={{
                       color: isActive ? '#ffffff' : 'rgba(255,255,255,0.5)',
-                      filter: isActive
-                        ? 'drop-shadow(0 0 7px rgba(255,255,255,0.4))'
-                        : 'none',
+                      filter: isActive ? 'drop-shadow(0 0 7px rgba(255,255,255,0.4))' : 'none',
                     }}
                   />
-                  <span
-                    className="text-[10px] font-semibold tracking-wide leading-none whitespace-nowrap"
-                    style={{
-                      color: isActive ? '#ffffff' : 'rgba(255,255,255,0.45)',
-                    }}
-                  >
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    letterSpacing: '0.03em',
+                    lineHeight: 1,
+                    whiteSpace: 'nowrap',
+                    color: isActive ? '#ffffff' : 'rgba(255,255,255,0.45)',
+                  }}>
                     {tab.label}
                   </span>
                 </motion.div>
@@ -295,7 +319,7 @@ export const LiquidTabBar = ({
             );
           })}
         </div>
-      </nav>
-    </div>
+      </div>
+    </>
   );
 };
