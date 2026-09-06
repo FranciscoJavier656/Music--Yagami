@@ -33,7 +33,8 @@ export default function MiniPlayer() {
             animate={{ y: isExpanded ? 50 : 0, opacity: isExpanded ? 0 : 1 }}
             exit={{ y: 100, opacity: 0 }}
             transition={{ type: "spring", stiffness: 300, damping: 25 }}
-            className="absolute bottom-[96px] left-3 right-3 z-40"
+            className="absolute left-3 right-3 z-40"
+            style={{ bottom: 'calc(68px + env(safe-area-inset-bottom, 8px) + 18px)' }}
           >
             <motion.div 
               className="cursor-pointer touch-none relative rounded-[20px] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.4)] group"
